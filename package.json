@@ -9,12 +9,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Gurpartap/pi-mermaid.git"
+    "url": "git+https://github.com/buihongduc132/pi-mermaid.git"
   },
   "bugs": {
-    "url": "https://github.com/Gurpartap/pi-mermaid/issues"
+    "url": "https://github.com/buihongduc132/pi-mermaid/issues"
   },
-  "homepage": "https://github.com/Gurpartap/pi-mermaid",
+  "homepage": "https://github.com/buihongduc132/pi-mermaid",
   "keywords": [
     "pi",
     "pi-extension",
@@ -23,6 +23,11 @@
     "ascii",
     "tui"
   ],
+  "scripts": {
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -44,5 +49,9 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.5",
+    "vitest": "^4.1.5"
   }
 }

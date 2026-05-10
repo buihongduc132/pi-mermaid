@@ -61,6 +61,23 @@ async function getMermaidParser(): Promise<((text: string) => Promise<void>) | n
 				// ignore initialization errors
 			}
 		}
+
+		// Probe: detect DOMPurify unavailability before first real parse.
+		// Mermaid 11 bundles DOMPurify 3.x internally; in Node.js (no DOM),
+		// DOMPurify returns isSupported=false without addHook(). Most diagram
+		// types (classDiagram, gantt, pie, etc.) trigger addHook during parse
+		// and throw "DOMPurify.addHook is not a function".
+		try {
+			const probe = api.parse("classDiagram\n  class A");
+			if (probe && typeof probe.then === "function") await probe;
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			if (isDomPurifyError(msg)) {
+				mermaidParserError = "DOMPurify unavailable (no DOM environment)";
+				return null;
+			}
+		}
+
 		mermaidParser = async (text: string) => {
 			const result = api.parse(text);
 			if (result && typeof result.then === "function") {
@@ -484,11 +501,11 @@ export default function (pi: ExtensionAPI) {
 
 		const warnParserUnavailable = (errorMessage?: string) => {
 			if (!ctx.hasUI || mermaidParserWarned) return;
-			const suffixSource = errorMessage ?? mermaidParserError;
-			const suffix = suffixSource ? ` (${suffixSource})` : "";
+			const isDom = errorMessage ? isDomPurifyError(errorMessage) : false;
+			const suffix = isDom ? "" : (errorMessage ? ` (${errorMessage})` : (mermaidParserError ? ` (${mermaidParserError})` : ""));
 			notify(
-				`Mermaid parser validation isn’t usable right now${suffix}. Will try again next time; rendering anyway.`,
-				"warning",
+				`Mermaid parser validation isn't available${suffix}. Rendering as ASCII without validation.`,
+				"info",
 			);
 			mermaidParserWarned = true;
 		};
