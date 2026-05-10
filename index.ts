@@ -611,3 +611,32 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 }
+
+// Test-only exports
+export const __test = {
+	isDomPurifyError,
+	getMermaidParser,
+	normalizeMermaidSource,
+	formatIssueLines,
+	buildContextContent,
+	extractText,
+	extractMermaidBlocks,
+	getMermaidTypeToken,
+	getSupportedMermaidType,
+	hashMermaid,
+	getAsciiCacheKey,
+	getCachedVariant,
+	setCachedVariant,
+	countAsciiLines,
+	maxAsciiLineWidth,
+	getCachedAsciiLines,
+	renderAsciiVariant,
+	selectAsciiVariant,
+	splitIssuesFromContent,
+	getLastAssistantText,
+	processBlock,
+	ASCII_PRESETS,
+	SUPPORTED_TYPES,
+	MAX_BLOCKS,
+	COLLAPSED_LINES,
+};

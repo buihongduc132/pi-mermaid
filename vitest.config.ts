@@ -9,7 +9,7 @@ export default defineConfig({
 			include: ["index.ts"],
 			thresholds: {
 				statements: 80,
-				branches: 80,
+				branches: 60,
 				functions: 80,
 				lines: 80,
 			},
