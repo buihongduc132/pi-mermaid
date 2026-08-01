@@ -1356,10 +1356,13 @@ describe("processBlock render failures", () => {
 	});
 
 	it("evicts oldest seenIssueKeys entry once size exceeds MAX_SEEN_ISSUES (lines 353-355)", async () => {
-		// Drive >MAX_SEEN_ISSUES (200) distinct issue keys so the eviction
-		// branch fires: each unique block hash yields a unique key. After 200
-		// distinct entries, the 201st triggers `seenIssueKeys.size > 200`,
-		// deletes the oldest entry (`if (oldest) seenIssueKeys.delete(oldest)`).
+		// seenIssueKeys caps at MAX_SEEN_ISSUES (200) by deleting the OLDEST
+		// inserted key once size exceeds 200 (LRU-ish). To prove eviction
+		// actually happens: record key #0, then 200 MORE distinct keys (which
+		// evicts #0), then re-trigger the SAME block #0. Because #0 was evicted,
+		// the re-trigger is NOT deduped -> it records a fresh issue. With
+		// blockLabel="" the issue message (and thus the dedup key) is stable
+		// across both #0 calls, so the only variable is whether #0 survives.
 		vi.resetModules();
 		vi.doMock("mermaid", () => ({
 			default: { parse: vi.fn().mockResolvedValue(undefined), initialize: vi.fn() },
@@ -1371,15 +1374,23 @@ describe("processBlock render failures", () => {
 		}));
 		const mod = await import("../index.ts?proc-evict-" + Date.now());
 
-		// 201 distinct blocks -> 201 distinct keys -> eviction runs on the 201st.
-		for (let n = 0; n < 201; n++) {
-			// Unique source per iteration -> unique diagramHash -> unique key.
+		// Seed key #0 (block N0): first occurrence -> recorded, issues length 1.
+		const first = await mod.__test.processBlock(`graph TD\n  N0-->B`, 1, "", null, warnParserUnavailable);
+		expect(first.issues).toHaveLength(1);
+
+		// 200 MORE distinct blocks (N1..N200) -> 200 more distinct keys. The
+		// 200th of these pushes size to 201 (> MAX_SEEN_ISSUES), evicting the
+		// oldest entry, which is key #0.
+		for (let n = 1; n <= 200; n++) {
 			await mod.__test.processBlock(`graph TD\n  N${n}-->B`, 1, "", null, warnParserUnavailable);
 		}
-		// No assertion on side effects: the goal is simply to execute the
-		// eviction branch (line 353 true arm + line 355 delete). A successful
-		// run without throwing confirms the eviction path is exercised.
-		expect(true).toBe(true);
+
+		// Re-trigger the SAME block #0 with the SAME failure. If eviction
+		// worked, key #0 is gone from seenIssueKeys, so this is recorded again
+		// (issues length 1). If eviction did NOT happen, key #0 would still be
+		// present and addIssue would dedupe (issues length 0).
+		const reIssueResult = await mod.__test.processBlock(`graph TD\n  N0-->B`, 1, "", null, warnParserUnavailable);
+		expect(reIssueResult.issues).toHaveLength(1);
 	});
 });
 
