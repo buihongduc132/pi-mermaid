@@ -26,6 +26,8 @@ const {
 	ASCII_PRESETS,
 	MAX_BLOCKS,
 	COLLAPSED_LINES,
+	MAX_SOURCE_LINES,
+	MAX_SOURCE_CHARS,
 } = __test;
 
 // ── Pure Function Tests ────────────────────────────────────────────────────
@@ -1001,16 +1003,22 @@ describe("getMermaidParser", () => {
 		// Second call: short-circuits at `if (mermaidParser || mermaidParserError)`
 		// and returns the cached null (line 48 first arm).
 		vi.resetModules();
-		vi.doMock("mermaid", () => ({ get default() { return undefined; } }));
+		// Track `mermaid` default access to prove the second call is a cache hit
+		// (no re-import / re-evaluation of the body).
+		const defaultAccess = vi.fn(() => undefined);
+		vi.doMock("mermaid", () => ({ get default() { return defaultAccess(); } }));
 		vi.doMock("beautiful-mermaid", () => ({ renderMermaidAscii: () => "x" }));
 		const mod = await freshImport();
 
 		const first = await mod.__test.getMermaidParser();
 		expect(first).toBeNull();
+		expect(defaultAccess).toHaveBeenCalledTimes(1);
 
-		// Second call returns null WITHOUT re-evaluating the body (cache hit).
+		// Second call returns null WITHOUT re-evaluating the body (cache hit):
+		// defaultAccess is still 1 = the mermaid module was never re-imported.
 		const second = await mod.__test.getMermaidParser();
 		expect(second).toBeNull();
+		expect(defaultAccess).toHaveBeenCalledTimes(1);
 	});
 
 	it("uses mermaidAPI fallback when mod.default is undefined (line 52 mermaidAPI arm)", async () => {
@@ -1137,8 +1145,7 @@ describe("getMermaidParser", () => {
 		vi.resetModules();
 		vi.doMock("mermaid", () => ({
 			default: {
-				// First call (probe) throws a plain Error; subsequent calls (real
-				// parse inside the parser closure) succeed.
+				// Every call throws a plain (non-DOMPurify) Error, including the probe.
 				parse: vi.fn(() => {
 					throw new Error("probe-only-failure");
 				}),
@@ -1398,6 +1405,10 @@ describe("processBlock render failures", () => {
 //    Component.render / invalidate / Box paint callbacks (index.ts lines 426-489) ──
 
 describe("renderMermaidMessage: renderer capture + ascii/box/source rendering", () => {
+	// Monotonic counter for cache-busting import specifiers. Date.now() can
+	// collide when two setupRenderer() calls land in the same millisecond; a
+	// counter guarantees each dynamic import resolves to a fresh module.
+	let rendererSeq = 0;
 	// Helper: set up an isolated module instance and capture the MessageRenderer
 	// registered via pi.registerMessageRenderer. Returns the captured renderer
 	// so individual tests can invoke it with bespoke message/theme shapes.
@@ -1416,7 +1427,7 @@ describe("renderMermaidMessage: renderer capture + ascii/box/source rendering", 
 			vi.doMock("@mariozechner/pi-coding-agent", () => opts.mockMarkdownTheme);
 		}
 
-		const mod = await import("../index.ts?" + Date.now());
+		const mod = await import("../index.ts?renderer-" + rendererSeq++);
 		let capturedRenderer: any;
 		const mockPi = {
 			registerMessageRenderer: (_type: string, renderer: any) => {
@@ -1802,7 +1813,7 @@ function mockMermaidImportThrows(errorMessage = "Cannot find module 'mermaid'") 
 }
 
 describe("renderBlocks: notify closure (hasUI arms)", () => {
-	it("renders a block when ctx.hasUI is true (notify true arm, line 499 br0)", async () => {
+	it("renders a block when ctx.hasUI is true without emitting a notification", async () => {
 		vi.resetModules();
 		mockMermaidOk();
 		vi.doMock("beautiful-mermaid", () => ({ renderMermaidAscii: vi.fn(() => "ASCII") }));
@@ -1826,6 +1837,8 @@ describe("renderBlocks: notify closure (hasUI arms)", () => {
 		);
 		// notify closure's true arm is reachable; block is rendered.
 		expect(mockPi.sendMessage).toHaveBeenCalledTimes(1);
+		// Block is valid, so no notification is emitted.
+		expect(notify).not.toHaveBeenCalled();
 	});
 
 	it("renders a block when ctx.hasUI is false without throwing (notify false arm, line 499 br1)", async () => {
@@ -2031,8 +2044,8 @@ describe("renderBlocks: body branches", () => {
 		mod.default(mockPi as any);
 
 		const notify = vi.fn();
-		// Valid block followed by an oversized block (>400 lines).
-		const huge = "graph TD\n" + "A-->B\n".repeat(420);
+		// Valid block followed by an oversized block (> MAX_SOURCE_LINES).
+		const huge = "graph TD\n" + "A-->B\n".repeat(MAX_SOURCE_LINES + 1);
 		const text = "```mermaid\ngraph TD\n  A-->B\n```\n```mermaid\n" + huge + "\n```";
 		await capturedHandler({ source: "user", text }, { hasUI: true, ui: { notify } });
 
@@ -2062,8 +2075,8 @@ describe("renderBlocks: body branches", () => {
 		mod.default(mockPi as any);
 
 		const notify = vi.fn();
-		// Few lines but total length > 20000 chars.
-		const longToken = "A" + "-->B".repeat(5000);
+		// Few lines but total length > MAX_SOURCE_CHARS.
+		const longToken = "A" + "x".repeat(MAX_SOURCE_CHARS + 1);
 		const text = "```mermaid\ngraph TD\n  " + longToken + "\n```";
 		await capturedHandler({ source: "user", text }, { hasUI: true, ui: { notify } });
 
